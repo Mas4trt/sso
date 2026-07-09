@@ -1,0 +1,15 @@
+env: "local" 
+
+storage:
+  driver: postgres
+  dsn: postgres://user:password@localhost:5432/sso?sslmode=disable
+
+grpc:
+  port: 44044
+  timeout: 1h
+
+token:
+  ttl: 1h
+
+migrations:
+  path: ./migrations
