@@ -30,7 +30,4 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
-<<<<<<< HEAD
-/internal/config/testdata/
-=======
->>>>>>> 6e9186ada402f33119271c05ecee6f1a546f45bf
+

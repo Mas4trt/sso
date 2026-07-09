@@ -1,0 +1,5 @@
+env: "local" 
+
+storage:
+driver: postgres
+dsn: ./storage.db
