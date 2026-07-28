@@ -9,9 +9,37 @@ on:
       - main
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Format check
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "The following files are not gofmt'ed:"
+            echo "$fmt_out"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=3m
+
+  unit-test:
+    runs-on: ubuntu-latest
+    needs: lint
     steps:
       - uses: actions/checkout@v4
 
@@ -22,14 +50,32 @@ jobs:
 
       - run: go mod download
 
-      - name: Format check
-        run: test -z "$(gofmt -l .)"
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test -race -cover ./...
+      - name: Unit tests
+        run: go test -race -cover -short ./...
 
       - name: Build
         run: go build ./...
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go mod download
+
+      # Docker уже поднят на GitHub-hosted runner — отдельный dind-сервис не нужен.
+      - name: Verify docker is available
+        run: docker info
+
+      - name: Integration tests (testcontainers)
+        run: go test -race -v ./internal/storage/...
+        env:
+          # testcontainers сам находит сокет на ubuntu-latest, но переменная
+          # ускоряет обнаружение и убирает ambiguity в некоторых setup'ах.
+          TESTCONTAINERS_RYUK_DISABLED: "false"

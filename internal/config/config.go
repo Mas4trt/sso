@@ -29,7 +29,8 @@ type GRPSConfig struct {
 }
 
 type TokenConfig struct {
-	TTL time.Duration `yaml:"ttl" env:"TOKEN_TTL" env-default:"1h"`
+	TTL        time.Duration `yaml:"ttl" env:"TOKEN_TTL" env-default:"1h"`
+	RefreshTTL time.Duration `yaml:"refresh_ttl" env:"TOKEN_REFRESH_TTL" env-default:"720h"`
 }
 
 type MigrationsConfig struct {

@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+
+	"sso/internal/app"
 	"sso/internal/config"
 )
 
@@ -15,29 +20,39 @@ const (
 func main() {
 	cfg := config.MustLoad()
 
-	log := setupLogger(cfg)
+	log := setupLogger(cfg.Env)
+	log.Info("starting application", slog.String("env", cfg.Env))
 
-	log.Info("starting application")
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-}
-
-func setupLogger(cfg *config.Config) *slog.Logger {
-	var log *slog.Logger
-
-	switch cfg.Env {
-	case envLocal:
-		log = slog.New(
-			slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		)
-	case envDev:
-		log = slog.New(
-			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		)
-	case envProd:
-		log = slog.New(
-			slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		)
+	application, err := app.New(ctx, log, cfg.GRPC.Port, cfg.Storage.DSN, cfg.Token.TTL, cfg.Token.RefreshTTL)
+	if err != nil {
+		log.Error("failed to init app", slog.Any("error", err))
+		os.Exit(1)
 	}
 
-	return log
+	go application.GRPCSrv.MustRun()
+
+	<-ctx.Done()
+
+	log.Info("shutting down application")
+	application.GRPCSrv.Stop()
+	application.Close()
+
+	log.Info("application stopped")
+}
+
+func setupLogger(env string) *slog.Logger {
+	switch env {
+	case envLocal:
+		return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	case envDev:
+		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	case envProd:
+		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	default:
+		// fail-safe: не паникуем на nil-логгере, деградируем до дефолта.
+		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	}
 }
