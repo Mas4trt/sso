@@ -66,6 +66,40 @@ func (s *serverAPI) Authenticate(ctx context.Context, in *authv1.LoginRequest) (
 	return &authv1.LoginResponse{AccessToken: access, RefreshToken: refresh}, nil
 }
 
+func (s *serverAPI) RefreshTokens(ctx context.Context, in *authv1.RefreshTokensRequest) (*authv1.LoginResponse, error) {
+	if in.GetRefreshToken() == "" {
+		return nil, status.Error(codes.InvalidArgument, "refresh_token is required")
+	}
+	if in.GetApplicationId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "app_id is required")
+	}
+
+	access, refresh, err := s.auth.RefreshTokens(ctx, in.GetRefreshToken(), in.GetApplicationId())
+	if err != nil {
+		if errors.Is(err, authsvc.ErrRefreshTokenInvalid) {
+			return nil, status.Error(codes.Unauthenticated, "refresh token invalid or expired")
+		}
+		if errors.Is(err, storage.ErrAppNotFound) {
+			return nil, status.Error(codes.NotFound, "app not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to refresh tokens")
+	}
+
+	return &authv1.LoginResponse{AccessToken: access, RefreshToken: refresh}, nil
+}
+
+func (s *serverAPI) Logout(ctx context.Context, in *authv1.LogoutRequest) (*authv1.LogoutResponse, error) {
+	if in.GetRefreshToken() == "" {
+		return nil, status.Error(codes.InvalidArgument, "refresh_token is required")
+	}
+
+	if err := s.auth.Logout(ctx, in.GetRefreshToken()); err != nil {
+		return nil, status.Error(codes.Internal, "failed to logout")
+	}
+
+	return &authv1.LogoutResponse{Success: true}, nil
+}
+
 func (s *serverAPI) GetRole(ctx context.Context, in *authv1.GetRoleRequest) (*authv1.GetRoleResponse, error) {
 	if in.GetUserId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "user_id is required")
@@ -108,35 +142,4 @@ func validateLogin(in *authv1.LoginRequest) error {
 		return status.Error(codes.InvalidArgument, "app_id is required")
 	}
 	return nil
-}
-
-func (s *serverAPI) RefreshTokens(ctx context.Context, in *authv1.RefreshTokensRequest) (*authv1.LoginResponse, error) {
-	if in.GetRefreshToken() == "" {
-		return nil, status.Error(codes.InvalidArgument, "refresh_token is required")
-	}
-	if in.GetApplicationId() == 0 {
-		return nil, status.Error(codes.InvalidArgument, "app_id is required")
-	}
-
-	access, refresh, err := s.auth.RefreshTokens(ctx, in.GetRefreshToken(), in.GetApplicationId())
-	if err != nil {
-		if errors.Is(err, authsvc.ErrRefreshTokenInvalid) {
-			return nil, status.Error(codes.Unauthenticated, "refresh token invalid or expired")
-		}
-		return nil, status.Error(codes.Internal, "failed to refresh tokens")
-	}
-
-	return &authv1.LoginResponse{AccessToken: access, RefreshToken: refresh}, nil
-}
-
-func (s *serverAPI) Logout(ctx context.Context, in *authv1.LogoutRequest) (*authv1.LogoutResponse, error) {
-	if in.GetRefreshToken() == "" {
-		return nil, status.Error(codes.InvalidArgument, "refresh_token is required")
-	}
-
-	if err := s.auth.Logout(ctx, in.GetRefreshToken()); err != nil {
-		return nil, status.Error(codes.Internal, "failed to logout")
-	}
-
-	return &authv1.LogoutResponse{Success: true}, nil
 }
