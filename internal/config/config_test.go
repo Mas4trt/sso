@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"sso/internal/config"
-	"strings"
 	"testing"
 	"time"
 
@@ -102,7 +101,7 @@ token:
 migrations:
   path: "./migrations"
 `,
-			expectedErr: "storage.driver is required",
+			expectedErr: `field "Driver" is required`,
 		},
 		{
 			name: "missing dsn",
@@ -122,7 +121,7 @@ token:
 migrations:
   path: "./migrations"
 `,
-			expectedErr: "storage.dsn is required",
+			expectedErr: `field "DSN" is required`,
 		},
 		{
 			name: "missing migrations path",
@@ -142,19 +141,21 @@ token:
 
 migrations:
 `,
-			expectedErr: "migrations.path is required",
+			expectedErr: `field "Path" is required`,
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
+
 		t.Run(tt.name, func(t *testing.T) {
 			path := createTempConfig(t, tt.configData)
+
 			cfg, err := config.Load(path)
 
 			require.Error(t, err)
 			assert.Nil(t, cfg)
-			assert.Contains(t, err.Error(), tt.expectedErr,
-				"error message should mention the missing field, got: %q", err.Error())
+			assert.ErrorContains(t, err, tt.expectedErr)
 		})
 	}
 }
@@ -190,17 +191,12 @@ migrations:
 }
 
 func TestLoad_EnvFileMissing_NotAnError(t *testing.T) {
-	// godotenv.Load() ищет .env в текущей рабочей директории
-	dir := t.TempDir()
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() {
-		wd, err := os.Getwd()
-		require.NoError(t, err)
-		_ = wd
-	})
-
 	origWD, err := os.Getwd()
 	require.NoError(t, err)
+
+	dir := t.TempDir()
+
+	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() {
 		require.NoError(t, os.Chdir(origWD))
 	})
@@ -222,27 +218,28 @@ token:
 migrations:
   path: "./migrations"
 `
+
 	path := createTempConfig(t, content)
 
 	_, err = config.Load(path)
-	require.NoError(t, err, "missing .env file must not be treated as an error")
+	require.NoError(t, err)
 }
 
 func TestLoad_EnvFileMalformed_ReturnsError(t *testing.T) {
-	// Если .env есть, но битый,
-	dir := t.TempDir()
-
 	origWD, err := os.Getwd()
 	require.NoError(t, err)
+
+	dir := t.TempDir()
+
+	require.NoError(t, os.Chdir(dir))
 	t.Cleanup(func() {
 		require.NoError(t, os.Chdir(origWD))
 	})
-	require.NoError(t, os.Chdir(dir))
 
-	// godotenv считает файл невалидным, если строка не разбирается
-	// в формате KEY=VALUE и не является комментарием/пустой строкой.
 	malformed := "this is not a valid env line without equals sign \x00"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".env"), []byte(malformed), 0o644))
+	require.NoError(t,
+		os.WriteFile(filepath.Join(dir, ".env"), []byte(malformed), 0o644),
+	)
 
 	content := `
 env: "local"
@@ -261,12 +258,13 @@ token:
 migrations:
   path: "./migrations"
 `
+
 	path := createTempConfig(t, content)
 
 	_, err = config.Load(path)
+
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "load .env") || strings.Contains(err.Error(), ".env"),
-		"expected error to mention .env loading, got: %q", err.Error())
+	assert.ErrorContains(t, err, ".env")
 }
 
 func createTempConfig(t *testing.T, content string) string {
