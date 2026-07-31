@@ -49,6 +49,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - run: go mod download
 
@@ -68,16 +69,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - run: go mod download
 
-      # Docker уже поднят на GitHub-hosted runner — отдельный dind-сервис не нужен.
       - name: Verify docker is available
         run: docker info
 
       - name: Integration tests (testcontainers)
         run: go test -race -v ./internal/storage/...
         env:
-          # testcontainers сам находит сокет на ubuntu-latest, но переменная
-          # ускоряет обнаружение и убирает ambiguity в некоторых setup'ах.
           TESTCONTAINERS_RYUK_DISABLED: "false"
