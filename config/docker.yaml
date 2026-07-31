@@ -1,0 +1,15 @@
+env: "local"
+
+storage:
+  driver: postgres
+
+grpc:
+  port: 44044
+  timeout: 5s
+
+token:
+  ttl: 1h
+  refresh_ttl: 720h
+
+migrations:
+  path: /app/migrations
