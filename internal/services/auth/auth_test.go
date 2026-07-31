@@ -72,8 +72,7 @@ func noopLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// newTestAuth собирает Auth с нужным подмножеством моков, остальные — nil,
-// если конкретный тест их не использует.
+// newTestAuth собирает Auth с нужным подмножеством моков, остальные — nil
 func newTestAuth(
 	saver authsvc.UserSaver,
 	provider authsvc.UserProvider,
@@ -165,7 +164,7 @@ func TestLogin_UserNotFound(t *testing.T) {
 	_, _, err := svc.Login(context.Background(), "unknown@example.com", "any", 1)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, authsvc.ErrInvalidCredentials) // важно: не палим наличие юзера
+	assert.ErrorIs(t, err, authsvc.ErrInvalidCredentials)
 }
 
 func TestRefreshTokens_Success(t *testing.T) {
@@ -226,7 +225,7 @@ func TestRefreshTokens_Expired(t *testing.T) {
 		Return(models.RefreshToken{
 			UserID:    1,
 			AppID:     1,
-			ExpiresAt: time.Now().Add(-time.Hour), // уже истёк
+			ExpiresAt: time.Now().Add(-time.Hour),
 		}, nil)
 
 	svc := newTestAuth(nil, nil, nil, tokenSaver)

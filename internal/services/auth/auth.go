@@ -147,7 +147,7 @@ func (a *Auth) RefreshTokens(ctx context.Context, refreshToken string, appID uin
 	}
 
 	// Ротация: старый токен инвалидируем сразу, даже если что-то пойдёт не так дальше —
-	// это защита от replay-атак (повторного использования украденного refresh-токена).
+	// это защита от replay-атак
 	if err := a.tokenSaver.RevokeRefreshToken(ctx, tokenHash); err != nil {
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
