@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -55,6 +56,12 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("stat config file %q: %w", path, err)
 	}
 
+	// .env — только для локальной разработки. В контейнерах/CI переменные
+	// окружения обычно уже проброшены платформой
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("load .env: %w", err)
+	}
+
 	var cfg Config
 
 	if err := cleanenv.ReadConfig(path, &cfg); err != nil {
@@ -70,7 +77,6 @@ func fetchConfigPath() string {
 	flag.StringVar(&res, "config", "", "path to configuration file")
 	flag.Parse()
 
-	// Если флаг пустой, смотрим в окружение
 	if res == "" {
 		res = os.Getenv("CONFIG_PATH")
 	}

@@ -9,10 +9,7 @@ grpc:
 
 token:
   ttl: 1h
+  refresh_ttl: 720h  # 30 дней
 
 migrations:
   path: ./migrations
-
-token:
-  ttl: 1h
-  refresh_ttl: 720h  # 30 дней

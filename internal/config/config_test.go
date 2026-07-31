@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sso/internal/config"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 )
 
 func TestLoad_Success(t *testing.T) {
-
 	cfg, err := config.Load("testdata/config.yaml")
 	require.NoError(t, err)
 
@@ -23,6 +23,42 @@ func TestLoad_Success(t *testing.T) {
 	assert.Equal(t, time.Hour, cfg.GRPC.Timeout)
 	assert.Equal(t, time.Hour, cfg.Token.TTL)
 	assert.Equal(t, "./migrations", cfg.Migrations.Path)
+}
+
+func TestLoad_Success_RefreshTTLDefault(t *testing.T) {
+	// testdata/config.yaml намеренно не задаёт refresh_ttl — проверяем,
+	// что env-default подхватывается, а не остаётся нулевым значением
+	cfg, err := config.Load("testdata/config.yaml")
+	require.NoError(t, err)
+
+	assert.Equal(t, 720*time.Hour, cfg.Token.RefreshTTL)
+}
+
+func TestLoad_Success_RefreshTTLFromYAML(t *testing.T) {
+	content := `
+env: "local"
+
+storage:
+  driver: "postgres"
+  dsn: "postgres://localhost:5432"
+
+grpc:
+  port: 44044
+  timeout: 1h
+
+token:
+  ttl: 1h
+  refresh_ttl: 48h
+
+migrations:
+  path: "./migrations"
+`
+	path := createTempConfig(t, content)
+
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, 48*time.Hour, cfg.Token.RefreshTTL)
 }
 
 func TestLoad_PathEmpty(t *testing.T) {
@@ -117,8 +153,120 @@ migrations:
 
 			require.Error(t, err)
 			assert.Nil(t, cfg)
+			assert.Contains(t, err.Error(), tt.expectedErr,
+				"error message should mention the missing field, got: %q", err.Error())
 		})
 	}
+}
+
+func TestLoad_EnvVarOverridesYAML(t *testing.T) {
+	// В контейнерах/CI секреты приходят через переменные окружения и должны
+	// иметь приоритет над значением в yaml
+	content := `
+env: "local"
+
+storage:
+  driver: "postgres"
+  dsn: "yaml-dsn-should-be-overridden"
+
+grpc:
+  port: 44044
+  timeout: 1h
+
+token:
+  ttl: 1h
+
+migrations:
+  path: "./migrations"
+`
+	path := createTempConfig(t, content)
+
+	t.Setenv("STORAGE_DSN", "postgres://env-user:env-pass@env-host:5432/db")
+
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "postgres://env-user:env-pass@env-host:5432/db", cfg.Storage.DSN)
+}
+
+func TestLoad_EnvFileMissing_NotAnError(t *testing.T) {
+	// godotenv.Load() ищет .env в текущей рабочей директории
+	dir := t.TempDir()
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		wd, err := os.Getwd()
+		require.NoError(t, err)
+		_ = wd
+	})
+
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, os.Chdir(origWD))
+	})
+
+	content := `
+env: "local"
+
+storage:
+  driver: "postgres"
+  dsn: "postgres://localhost:5432"
+
+grpc:
+  port: 44044
+  timeout: 1h
+
+token:
+  ttl: 1h
+
+migrations:
+  path: "./migrations"
+`
+	path := createTempConfig(t, content)
+
+	_, err = config.Load(path)
+	require.NoError(t, err, "missing .env file must not be treated as an error")
+}
+
+func TestLoad_EnvFileMalformed_ReturnsError(t *testing.T) {
+	// Если .env есть, но битый,
+	dir := t.TempDir()
+
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, os.Chdir(origWD))
+	})
+	require.NoError(t, os.Chdir(dir))
+
+	// godotenv считает файл невалидным, если строка не разбирается
+	// в формате KEY=VALUE и не является комментарием/пустой строкой.
+	malformed := "this is not a valid env line without equals sign \x00"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".env"), []byte(malformed), 0o644))
+
+	content := `
+env: "local"
+
+storage:
+  driver: "postgres"
+  dsn: "postgres://localhost:5432"
+
+grpc:
+  port: 44044
+  timeout: 1h
+
+token:
+  ttl: 1h
+
+migrations:
+  path: "./migrations"
+`
+	path := createTempConfig(t, content)
+
+	_, err = config.Load(path)
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "load .env") || strings.Contains(err.Error(), ".env"),
+		"expected error to mention .env loading, got: %q", err.Error())
 }
 
 func createTempConfig(t *testing.T, content string) string {
