@@ -9,11 +9,14 @@ import (
 	"sso/internal/grpc/interceptors"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type App struct {
 	log        *slog.Logger
 	gRPCServer *grpc.Server
+	healthSrv  *health.Server
 	port       int
 }
 
@@ -27,9 +30,14 @@ func New(log *slog.Logger, authService authgrpc.AuthService, port int) *App {
 
 	authgrpc.Register(gRPCServer, authService)
 
+	healthSrv := health.NewServer()
+	healthpb.RegisterHealthServer(gRPCServer, healthSrv)
+	healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
 	return &App{
 		log:        log,
 		gRPCServer: gRPCServer,
+		healthSrv:  healthSrv,
 		port:       port,
 	}
 }
@@ -60,5 +68,9 @@ func (a *App) Run() error {
 
 func (a *App) Stop() {
 	a.log.With(slog.String("op", "grpcapp.Stop")).Info("stopping grpc server", slog.Int("port", a.port))
+
+	// Сначала помечаем сервис NOT_SERVING
+	a.healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+
 	a.gRPCServer.GracefulStop()
 }

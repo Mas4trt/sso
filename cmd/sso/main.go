@@ -52,7 +52,7 @@ func setupLogger(env string) *slog.Logger {
 	case envProd:
 		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	default:
-		// fail-safe: не паникуем на nil-логгере, деградируем до дефолта.
+		// fail-safe: не паникуем на nil-логгере
 		return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
 }
