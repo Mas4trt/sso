@@ -3,8 +3,8 @@ package sl
 import "log/slog"
 
 func Err(err error) slog.Attr {
-	return slog.Attr{
-		Key:   "Error",
-		Value: slog.StringValue(err.Error()),
+	if err == nil {
+		return slog.Attr{}
 	}
+	return slog.Any("error", err)
 }
