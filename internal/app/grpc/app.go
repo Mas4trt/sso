@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	authgrpc "sso/internal/grpc/auth"
 	"sso/internal/grpc/interceptors"
@@ -11,6 +12,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+)
+
+const (
+	authRateLimit   = 1.0 // запросов/сек с одного peer IP
+	authRateBurst   = 5.0
+	limiterEntryTTL = 10 * time.Minute
 )
 
 type App struct {
@@ -21,9 +28,16 @@ type App struct {
 }
 
 func New(log *slog.Logger, authService authgrpc.AuthService, port int) *App {
+	authLimiter := interceptors.NewMethodRateLimiter(
+		authRateLimit, authRateBurst, limiterEntryTTL,
+		"/auth.v1.Auth/Register",
+		"/auth.v1.Auth/Authenticate",
+	)
+
 	gRPCServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			interceptors.Recovery(log),
+			authLimiter.Unary(),
 			interceptors.Logging(log),
 		),
 	)
