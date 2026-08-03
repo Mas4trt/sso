@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/mail"
 
 	authsvc "sso/internal/services/auth"
 	"sso/internal/storage"
@@ -125,8 +126,14 @@ func validateRegister(in *authv1.RegisterRequest) error {
 	if in.GetEmail() == "" {
 		return status.Error(codes.InvalidArgument, "email is required")
 	}
+	if _, err := mail.ParseAddress(in.GetEmail()); err != nil {
+		return status.Error(codes.InvalidArgument, "email must be a valid address")
+	}
 	if in.GetPassword() == "" {
 		return status.Error(codes.InvalidArgument, "password is required")
+	}
+	if len(in.GetPassword()) < 8 {
+		return status.Error(codes.InvalidArgument, "password must be at least 8 characters")
 	}
 	return nil
 }
@@ -134,6 +141,9 @@ func validateRegister(in *authv1.RegisterRequest) error {
 func validateLogin(in *authv1.LoginRequest) error {
 	if in.GetEmail() == "" {
 		return status.Error(codes.InvalidArgument, "email is required")
+	}
+	if _, err := mail.ParseAddress(in.GetEmail()); err != nil {
+		return status.Error(codes.InvalidArgument, "email must be a valid address")
 	}
 	if in.GetPassword() == "" {
 		return status.Error(codes.InvalidArgument, "password is required")
