@@ -72,7 +72,7 @@ envoy-validate:
 ## --- dependency management ---
 
 # Bumps the shared auth.v1 contract to a new tagged version and tidies.
-# Usage: make proto-update VERSION=v0.0.1-fix.5
+# Usage: make proto-update VERSION=v1.0.0
 proto-update:
 	@test -n "$(VERSION)" || { echo "usage: make proto-update VERSION=vX.Y.Z"; exit 1; }
 	go get github.com/Mas4trt/protos@$(VERSION)
