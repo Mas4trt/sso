@@ -21,6 +21,7 @@ static_resources:
                       cors:
                         allow_origin_string_match:
                           - exact: "https://app.example.com"
+                          - exact: "http://localhost:5173"
                         allow_methods: POST, GET, OPTIONS
                         allow_headers: content-type,x-grpc-web,x-user-agent,grpc-timeout,authorization
                         expose_headers: grpc-status,grpc-message
