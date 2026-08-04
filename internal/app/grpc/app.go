@@ -20,6 +20,14 @@ const (
 	authRateLimit   = 1.0 // запросов/сек с одного peer IP
 	authRateBurst   = 5.0
 	limiterEntryTTL = 10 * time.Minute
+
+	// ShutdownTimeout bounds how long GracefulStop waits for in-flight RPCs
+	// to finish before we fall back to a hard Stop(). Without this, a
+	// single stuck stream (client that stopped reading, broken network
+	// path, etc.) can hang container termination indefinitely — which in
+	// k8s means an eventual SIGKILL after the pod's terminationGracePeriod,
+	// but with no logs explaining why the shutdown never completed.
+	ShutdownTimeout = 20 * time.Second
 )
 
 type App struct {
@@ -95,11 +103,26 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
+// Stop marks the service NOT_SERVING (so a load balancer's health check
+// starts routing away before we stop accepting work), then waits up to
+// ShutdownTimeout for in-flight RPCs to drain before forcing a hard stop.
 func (a *App) Stop() {
-	a.log.With(slog.String("op", "grpcapp.Stop")).Info("stopping grpc server", slog.Int("port", a.port))
+	log := a.log.With(slog.String("op", "grpcapp.Stop"))
+	log.Info("stopping grpc server", slog.Int("port", a.port), slog.Duration("timeout", ShutdownTimeout))
 
-	// Сначала помечаем сервис NOT_SERVING
 	a.healthSrv.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 
-	a.gRPCServer.GracefulStop()
+	stopped := make(chan struct{})
+	go func() {
+		a.gRPCServer.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		log.Info("grpc server stopped gracefully")
+	case <-time.After(ShutdownTimeout):
+		log.Warn("graceful shutdown timed out, forcing stop")
+		a.gRPCServer.Stop()
+	}
 }

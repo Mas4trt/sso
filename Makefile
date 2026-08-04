@@ -3,9 +3,16 @@ DB_DSN         ?= postgres://sso:sso@localhost:5432/sso?sslmode=disable
 MIGRATIONS_DIR := ./migrations
 BIN_DIR        := ./bin
 
+# NOTE: kept distinct from proto-update's VERSION=vX.Y.Z argument on purpose
+# (that one pins a *dependency* version; this one stamps *this binary*).
+APP_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT      ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILD_DATE  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS     := -s -w -X main.version=$(APP_VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
+
 .PHONY: run build test test-unit test-integration lint fmt vet ci \
         migrate-up migrate-down migrate-new \
-        docker-up docker-down docker-logs \
+        docker-up docker-down docker-logs docker-build \
         envoy-validate proto-update new-app
 
 ## --- local dev ---
@@ -14,7 +21,7 @@ run:
 	go run ./cmd/sso --config=$(CONFIG)
 
 build:
-	go build -o $(BIN_DIR)/sso ./cmd/sso
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/sso ./cmd/sso
 
 ## --- quality gates, mirrors .github/workflows/ci.yml ---
 
@@ -57,8 +64,11 @@ migrate-new:
 
 ## --- docker-compose stack (postgres + migrate + sso) ---
 
-docker-up:
-	docker compose up -d --build
+docker-build:
+	docker compose build --build-arg VERSION=$(APP_VERSION) --build-arg COMMIT=$(COMMIT) --build-arg BUILD_DATE=$(BUILD_DATE)
+
+docker-up: docker-build
+	docker compose up -d
 
 docker-down:
 	docker compose down -v

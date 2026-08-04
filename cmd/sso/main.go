@@ -17,11 +17,24 @@ const (
 	envProd  = "prod"
 )
 
+// Set at build time via -ldflags "-X main.version=... -X main.commit=... -X main.buildDate=...".
+// See Dockerfile. Left as "dev"/"unknown" for `go run`/local builds.
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
+
 func main() {
 	cfg := config.MustLoad()
 
 	log := setupLogger(cfg.Env)
-	log.Info("starting application", slog.String("env", cfg.Env))
+	log.Info("starting application",
+		slog.String("env", cfg.Env),
+		slog.String("version", version),
+		slog.String("commit", commit),
+		slog.String("build_date", buildDate),
+	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -32,14 +45,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := application.Run(ctx); err != nil {
-		log.Error("grpc server stopped with error", slog.Any("error", err))
-		os.Exit(1)
-	}
+	runErr := application.Run(ctx)
 
 	log.Info("shutting down application")
-	if err := application.Close(); err != nil {
-		log.Error("failed to close application resources", slog.Any("error", err))
+	if closeErr := application.Close(); closeErr != nil {
+		log.Error("failed to close application resources", slog.Any("error", closeErr))
+	}
+
+	if runErr != nil {
+		log.Error("grpc server stopped with error", slog.Any("error", runErr))
+		os.Exit(1)
 	}
 
 	log.Info("application stopped")

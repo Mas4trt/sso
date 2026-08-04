@@ -1,5 +1,11 @@
 name: sso
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,6 +23,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    logging: *default-logging
 
   migrate:
     image: migrate/migrate:v4.18.1
@@ -33,11 +40,16 @@ services:
         "-database", "postgres://sso:sso@postgres:5432/sso?sslmode=disable",
         "up",
       ]
+    logging: *default-logging
 
   sso:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -54,6 +66,12 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    logging: *default-logging
 
   envoy:
     image: envoyproxy/envoy:v1.31-latest
@@ -66,6 +84,7 @@ services:
     ports:
       - "8080:8080"
       - "9901:9901"
+    logging: *default-logging
 
 volumes:
   postgres-data:
