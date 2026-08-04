@@ -149,6 +149,10 @@ func (a *Auth) RefreshTokens(ctx context.Context, refreshToken string, appID uin
 	// Ротация: старый токен инвалидируем сразу, даже если что-то пойдёт не так дальше —
 	// это защита от replay-атак
 	if err := a.tokenSaver.RevokeRefreshToken(ctx, tokenHash); err != nil {
+		if errors.Is(err, storage.ErrRefreshTokenInvalid) {
+			log.Warn("refresh token replay detected", slog.Uint64("user_id", stored.UserID))
+			return "", "", fmt.Errorf("%s: %w", op, ErrRefreshTokenInvalid)
+		}
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -159,6 +163,9 @@ func (a *Auth) RefreshTokens(ctx context.Context, refreshToken string, appID uin
 
 	user, err := a.usrProvider.UserByID(ctx, stored.UserID)
 	if err != nil {
+		if errors.Is(err, storage.ErrUserNotFound) {
+			return "", "", fmt.Errorf("%s: %w", op, ErrRefreshTokenInvalid)
+		}
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -171,9 +178,12 @@ func (a *Auth) Logout(ctx context.Context, refreshToken string) error {
 	tokenHash := jwt.HashToken(refreshToken)
 
 	if err := a.tokenSaver.RevokeRefreshToken(ctx, tokenHash); err != nil {
+		if errors.Is(err, storage.ErrRefreshTokenInvalid) {
+			// Already revoked / never existed — logout is idempotent.
+			return nil
+		}
 		return fmt.Errorf("%s: %w", op, err)
 	}
-
 	return nil
 }
 

@@ -218,6 +218,44 @@ func TestRefreshTokens_Revoked(t *testing.T) {
 	assert.ErrorIs(t, err, authsvc.ErrRefreshTokenInvalid)
 }
 
+func TestRefreshTokens_ReplayDetected(t *testing.T) {
+	tokenSaver := new(tokenSaverMock)
+	tokenSaver.On("RefreshToken", mock.Anything, mock.Anything).
+		Return(models.RefreshToken{UserID: 1, AppID: 1, ExpiresAt: time.Now().Add(time.Hour)}, nil)
+	// Simulates losing the race: another request revoked this token first.
+	tokenSaver.On("RevokeRefreshToken", mock.Anything, mock.Anything).
+		Return(storage.ErrRefreshTokenInvalid)
+
+	svc := newTestAuth(nil, nil, nil, tokenSaver)
+
+	_, _, err := svc.RefreshTokens(context.Background(), "some-token", 1)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, authsvc.ErrRefreshTokenInvalid)
+}
+
+func TestRefreshTokens_UserDeleted(t *testing.T) {
+	tokenSaver := new(tokenSaverMock)
+	tokenSaver.On("RefreshToken", mock.Anything, mock.Anything).
+		Return(models.RefreshToken{UserID: 1, AppID: 1, ExpiresAt: time.Now().Add(time.Hour)}, nil)
+	tokenSaver.On("RevokeRefreshToken", mock.Anything, mock.Anything).Return(nil)
+
+	appProvider := new(appProviderMock)
+	appProvider.On("App", mock.Anything, uint64(1)).
+		Return(models.App{ID: 1, Name: "test-app", Secret: "secret"}, nil)
+
+	provider := new(userProviderMock)
+	provider.On("UserByID", mock.Anything, uint64(1)).
+		Return(models.User{}, storage.ErrUserNotFound)
+
+	svc := newTestAuth(nil, provider, appProvider, tokenSaver)
+
+	_, _, err := svc.RefreshTokens(context.Background(), "some-token", 1)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, authsvc.ErrRefreshTokenInvalid)
+}
+
 func TestRefreshTokens_Expired(t *testing.T) {
 	tokenSaver := new(tokenSaverMock)
 
@@ -246,6 +284,18 @@ func TestLogout_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	tokenSaver.AssertExpectations(t)
+}
+
+func TestLogout_AlreadyRevoked_Idempotent(t *testing.T) {
+	tokenSaver := new(tokenSaverMock)
+	tokenSaver.On("RevokeRefreshToken", mock.Anything, mock.Anything).
+		Return(storage.ErrRefreshTokenInvalid)
+
+	svc := newTestAuth(nil, nil, nil, tokenSaver)
+
+	err := svc.Logout(context.Background(), "already-used-token")
+
+	require.NoError(t, err)
 }
 
 func TestIsAdmin(t *testing.T) {

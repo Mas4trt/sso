@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -92,6 +93,16 @@ func (l *MethodRateLimiter) Unary() grpc.UnaryServerInterceptor {
 }
 
 func peerIP(ctx context.Context) string {
+	// grpc-web traffic through Envoy: trust the address Envoy computed for
+	// us (see envoy.yaml's use_remote_address). Direct service-to-service
+	// callers don't go through Envoy and won't set this header, so they
+	// fall through to the raw gRPC peer below.
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("x-envoy-external-address"); len(vals) > 0 && vals[0] != "" {
+			return vals[0]
+		}
+	}
+
 	p, ok := peer.FromContext(ctx)
 	if !ok {
 		return "unknown"
