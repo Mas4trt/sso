@@ -1,6 +1,8 @@
 package grpcapp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -42,13 +44,13 @@ func New(log *slog.Logger, authService authgrpc.AuthService, port int) *App {
 	}
 }
 
-func (a *App) MustRun() {
-	if err := a.Run(); err != nil {
+func (a *App) MustRun(ctx context.Context) {
+	if err := a.Run(ctx); err != nil {
 		panic(err)
 	}
 }
 
-func (a *App) Run() error {
+func (a *App) Run(ctx context.Context) error {
 	const op = "grpcapp.Run"
 	log := a.log.With(slog.String("op", op), slog.Int("port", a.port))
 
@@ -59,7 +61,15 @@ func (a *App) Run() error {
 
 	log.Info("grpc server is running", slog.String("addr", l.Addr().String()))
 
+	go func() {
+		<-ctx.Done()
+		a.Stop()
+	}()
+
 	if err := a.gRPCServer.Serve(l); err != nil {
+		if errors.Is(err, grpc.ErrServerStopped) {
+			return nil
+		}
 		return fmt.Errorf("%s: %w", op, err)
 	}
 

@@ -77,6 +77,39 @@ func TestLoad_InvalidConfig(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLoad_InvalidRuntimeValues(t *testing.T) {
+	content := `
+env: "local"
+
+storage:
+  driver: "postgres"
+  dsn: "postgres://localhost:5432"
+
+grpc:
+  port: 0
+  timeout: 1h
+
+token:
+  ttl: 0s
+  refresh_ttl: 0s
+
+migrations:
+  path: "./migrations"
+`
+	path := createTempConfig(t, content)
+
+	t.Setenv("GRPC_PORT", "0")
+	t.Setenv("TOKEN_TTL", "0s")
+	t.Setenv("TOKEN_REFRESH_TTL", "0s")
+
+	cfg, err := config.Load(path)
+	require.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.ErrorContains(t, err, "grpc.port")
+	assert.ErrorContains(t, err, "token.ttl")
+	assert.ErrorContains(t, err, "token.refresh_ttl")
+}
+
 func TestLoad_MissingRequiredField(t *testing.T) {
 	tests := []struct {
 		name        string

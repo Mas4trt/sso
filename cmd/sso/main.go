@@ -32,13 +32,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	go application.GRPCSrv.MustRun()
-
-	<-ctx.Done()
+	if err := application.Run(ctx); err != nil {
+		log.Error("grpc server stopped with error", slog.Any("error", err))
+		os.Exit(1)
+	}
 
 	log.Info("shutting down application")
-	application.GRPCSrv.Stop()
-	application.Close()
+	if err := application.Close(); err != nil {
+		log.Error("failed to close application resources", slog.Any("error", err))
+	}
 
 	log.Info("application stopped")
 }

@@ -68,7 +68,43 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config %q: %w", path, err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+func (c *Config) Validate() error {
+	var errs []error
+
+	if c.Storage.Driver == "" {
+		errs = append(errs, fmt.Errorf("storage.driver must not be empty"))
+	}
+	if c.Storage.DSN == "" {
+		errs = append(errs, fmt.Errorf("storage.dsn must not be empty"))
+	}
+	if c.GRPC.Port <= 0 {
+		errs = append(errs, fmt.Errorf("grpc.port must be greater than 0"))
+	}
+	if c.GRPC.Timeout <= 0 {
+		errs = append(errs, fmt.Errorf("grpc.timeout must be greater than 0"))
+	}
+	if c.Token.TTL <= 0 {
+		errs = append(errs, fmt.Errorf("token.ttl must be greater than 0"))
+	}
+	if c.Token.RefreshTTL <= 0 {
+		errs = append(errs, fmt.Errorf("token.refresh_ttl must be greater than 0"))
+	}
+	if c.Migrations.Path == "" {
+		errs = append(errs, fmt.Errorf("migrations.path must not be empty"))
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid config: %w", errors.Join(errs...))
+	}
+
+	return nil
 }
 
 func fetchConfigPath() string {

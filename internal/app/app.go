@@ -43,6 +43,20 @@ func toGRPCAuthService(a *authsvc.Auth) authgrpc.AuthService {
 	return a
 }
 
-func (a *App) Close() {
-	a.storage.Close()
+func (a *App) Run(ctx context.Context) error {
+	if a == nil || a.GRPCSrv == nil {
+		return nil
+	}
+
+	return a.GRPCSrv.Run(ctx)
+}
+
+func (a *App) Close() error {
+	if a == nil {
+		return nil
+	}
+	if a.storage != nil {
+		a.storage.Close()
+	}
+	return nil
 }
