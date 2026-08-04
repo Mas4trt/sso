@@ -300,6 +300,34 @@ migrations:
 	assert.ErrorContains(t, err, ".env")
 }
 
+func TestLoad_UnsupportedStorageDriver(t *testing.T) {
+	content := `
+env: "local"
+
+storage:
+  driver: "mysql"
+  dsn: "postgres://localhost:5432"
+
+grpc:
+  port: 44044
+  timeout: 1h
+
+token:
+  ttl: 1h
+  refresh_ttl: 720h
+
+migrations:
+  path: "./migrations"
+`
+	path := createTempConfig(t, content)
+
+	cfg, err := config.Load(path)
+
+	require.Error(t, err)
+	assert.Nil(t, cfg)
+	assert.ErrorContains(t, err, `storage.driver "mysql" is not supported`)
+}
+
 func createTempConfig(t *testing.T, content string) string {
 	t.Helper()
 

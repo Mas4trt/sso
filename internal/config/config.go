@@ -78,8 +78,14 @@ func Load(path string) (*Config, error) {
 func (c *Config) Validate() error {
 	var errs []error
 
-	if c.Storage.Driver == "" {
+	switch c.Storage.Driver {
+	case "":
 		errs = append(errs, fmt.Errorf("storage.driver must not be empty"))
+	case "postgres":
+		// only backend wired up today (see internal/app/app.go)
+	default:
+		errs = append(errs, fmt.Errorf(
+			"storage.driver %q is not supported: only \"postgres\" is implemented", c.Storage.Driver))
 	}
 	if c.Storage.DSN == "" {
 		errs = append(errs, fmt.Errorf("storage.dsn must not be empty"))
