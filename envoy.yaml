@@ -8,8 +8,9 @@ static_resources:
             - name: envoy.filters.network.http_connection_manager
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                stat_prefix: sso_grpc_web
-                codec_type: AUTO
+                  stat_prefix: sso_grpc_web
+                  codec_type: AUTO
+                  use_remote_address: true
                 route_config:
                   name: local_route
                   virtual_hosts:
@@ -19,12 +20,8 @@ static_resources:
                       # no HTTP layer to attach headers to.
                       cors:
                         allow_origin_string_match:
-                          - safe_regex:
-                              regex: ".*"
+                          - exact: "https://app.example.com"
                         allow_methods: POST, GET, OPTIONS
-                        # x-grpc-web / x-user-agent: added by the grpc-web
-                        # runtime to every call. authorization: carries the
-                        # access token on GetRole.
                         allow_headers: content-type,x-grpc-web,x-user-agent,grpc-timeout,authorization
                         expose_headers: grpc-status,grpc-message
                         max_age: "1728000"
