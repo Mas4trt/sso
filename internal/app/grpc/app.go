@@ -29,17 +29,22 @@ type App struct {
 	port       int
 }
 
-func New(log *slog.Logger, authService authgrpc.AuthService, port int) *App {
+func New(log *slog.Logger, authService authgrpc.AuthService, apps interceptors.AppSecretLookup, port int) *App {
 	authLimiter := interceptors.NewMethodRateLimiter(
 		authRateLimit, authRateBurst, limiterEntryTTL,
 		"/auth.v1.Auth/Register",
 		"/auth.v1.Auth/Authenticate",
 	)
 
+	authInterceptor := interceptors.NewAuthInterceptor(apps,
+		"/auth.v1.Auth/GetRole",
+	)
+
 	gRPCServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			interceptors.Recovery(log),
 			authLimiter.Unary(),
+			authInterceptor,
 			interceptors.Logging(log),
 		),
 	)

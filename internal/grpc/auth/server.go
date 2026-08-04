@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/mail"
 
+	"sso/internal/grpc/interceptors"
 	authsvc "sso/internal/services/auth"
 	"sso/internal/storage"
 
@@ -106,6 +107,21 @@ func (s *serverAPI) GetRole(ctx context.Context, in *authv1.GetRoleRequest) (*au
 		return nil, status.Error(codes.InvalidArgument, "user_id is required")
 	}
 
+	callerID, ok := interceptors.UIDFromContext(ctx)
+	if !ok {
+		// Belt-and-suspenders: the interceptor should already have rejected
+		// this, but the handler shouldn't rely solely on that wiring to
+		// keep from leaking other users' roles.
+		return nil, status.Error(codes.Unauthenticated, "authentication required")
+	}
+
+	if callerID != in.GetUserId() {
+		callerIsAdmin, err := s.auth.IsAdmin(ctx, callerID)
+		if err != nil || !callerIsAdmin {
+			return nil, status.Error(codes.PermissionDenied, "cannot view another user's role")
+		}
+	}
+
 	isAdmin, err := s.auth.IsAdmin(ctx, in.GetUserId())
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
@@ -118,7 +134,6 @@ func (s *serverAPI) GetRole(ctx context.Context, in *authv1.GetRoleRequest) (*au
 	if isAdmin {
 		role = authv1.Role_ROLE_ADMIN
 	}
-
 	return &authv1.GetRoleResponse{Role: role}, nil
 }
 
@@ -135,6 +150,12 @@ func validateRegister(in *authv1.RegisterRequest) error {
 	if len(in.GetPassword()) < 8 {
 		return status.Error(codes.InvalidArgument, "password must be at least 8 characters")
 	}
+	// bcrypt hard-fails above 72 bytes (its internal input limit) — catch it
+	// here so the client gets a clear InvalidArgument instead of an opaque
+	// Internal error out of bcrypt.GenerateFromPassword downstream.
+	if len(in.GetPassword()) > 72 {
+		return status.Error(codes.InvalidArgument, "password must be at most 72 characters")
+	}
 	return nil
 }
 
@@ -150,6 +171,9 @@ func validateLogin(in *authv1.LoginRequest) error {
 	}
 	if in.GetApplicationId() == 0 {
 		return status.Error(codes.InvalidArgument, "app_id is required")
+	}
+	if len(in.GetPassword()) > 72 {
+		return status.Error(codes.InvalidArgument, "password must be at most 72 characters")
 	}
 	return nil
 }

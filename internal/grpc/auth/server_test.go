@@ -1,14 +1,18 @@
-// internal/grpc/auth/server_test.go
 package auth_test
 
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
+	"time"
 
+	"sso/internal/domain/models"
 	grpcauth "sso/internal/grpc/auth"
+	"sso/internal/grpc/interceptors"
 	authsvc "sso/internal/services/auth"
 	"sso/internal/storage"
+	"sso/pkg/jwt"
 
 	authv1 "github.com/Mas4trt/protos/gen/go/auth/v1"
 
@@ -18,6 +22,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -53,28 +58,22 @@ func (m *authServiceMock) IsAdmin(ctx context.Context, userID uint64) (bool, err
 
 // --- test harness ---
 
-// newTestClient поднимает реальный grpc-сервер поверх in-memory bufconn —
-// это проверяет не только логику хендлера, но и то, что сообщения
-// реально доходят через grpc-транспорт с правильными status codes,
-// а не просто вызывают Go-функцию напрямую.
-func newTestClient(t *testing.T, svc grpcauth.AuthService) authv1.AuthClient {
+func newTestClient(t *testing.T, svc grpcauth.AuthService, apps interceptors.AppSecretLookup) authv1.AuthClient {
 	t.Helper()
 
 	const bufSize = 1024 * 1024
 	lis := bufconn.Listen(bufSize)
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(interceptors.NewAuthInterceptor(apps, "/auth.v1.Auth/GetRole")),
+	)
 	grpcauth.Register(srv, svc)
 
-	go func() {
-		_ = srv.Serve(lis)
-	}()
+	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
 	conn, err := grpc.NewClient("passthrough:///bufnet",
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return lis.DialContext(ctx)
-		}),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
@@ -97,7 +96,7 @@ func TestRegister_Success(t *testing.T) {
 	svc.On("RegisterNewUser", mock.Anything, "test@example.com", "password123").
 		Return(uint64(1), nil)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	resp, err := client.Register(context.Background(), &authv1.RegisterRequest{
 		Email:    "test@example.com",
@@ -110,7 +109,7 @@ func TestRegister_Success(t *testing.T) {
 
 func TestRegister_EmptyEmail(t *testing.T) {
 	svc := new(authServiceMock)
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.Register(context.Background(), &authv1.RegisterRequest{
 		Password: "password123",
@@ -126,7 +125,7 @@ func TestRegister_AlreadyExists(t *testing.T) {
 	svc.On("RegisterNewUser", mock.Anything, mock.Anything, mock.Anything).
 		Return(uint64(0), authsvc.ErrUserExists)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.Register(context.Background(), &authv1.RegisterRequest{
 		Email:    "test@example.com",
@@ -144,7 +143,7 @@ func TestAuthenticate_Success(t *testing.T) {
 	svc.On("Login", mock.Anything, "test@example.com", "password123", uint64(1)).
 		Return("access-token", "refresh-token", nil)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	resp, err := client.Authenticate(context.Background(), &authv1.LoginRequest{
 		Email:         "test@example.com",
@@ -162,7 +161,7 @@ func TestAuthenticate_InvalidCredentials(t *testing.T) {
 	svc.On("Login", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return("", "", authsvc.ErrInvalidCredentials)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.Authenticate(context.Background(), &authv1.LoginRequest{
 		Email:         "test@example.com",
@@ -179,7 +178,7 @@ func TestAuthenticate_AppNotFound(t *testing.T) {
 	svc.On("Login", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return("", "", storage.ErrAppNotFound)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.Authenticate(context.Background(), &authv1.LoginRequest{
 		Email:         "test@example.com",
@@ -193,7 +192,7 @@ func TestAuthenticate_AppNotFound(t *testing.T) {
 
 func TestAuthenticate_MissingAppID(t *testing.T) {
 	svc := new(authServiceMock)
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.Authenticate(context.Background(), &authv1.LoginRequest{
 		Email:    "test@example.com",
@@ -212,7 +211,7 @@ func TestRefreshTokens_Success(t *testing.T) {
 	svc.On("RefreshTokens", mock.Anything, "old-refresh", uint64(1)).
 		Return("new-access", "new-refresh", nil)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	resp, err := client.RefreshTokens(context.Background(), &authv1.RefreshTokensRequest{
 		RefreshToken:  "old-refresh",
@@ -229,7 +228,7 @@ func TestRefreshTokens_InvalidToken(t *testing.T) {
 	svc.On("RefreshTokens", mock.Anything, mock.Anything, mock.Anything).
 		Return("", "", authsvc.ErrRefreshTokenInvalid)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.RefreshTokens(context.Background(), &authv1.RefreshTokensRequest{
 		RefreshToken:  "expired-or-revoked",
@@ -247,7 +246,7 @@ func TestRefreshTokens_AppNotFound(t *testing.T) {
 	svc.On("RefreshTokens", mock.Anything, mock.Anything, mock.Anything).
 		Return("", "", storage.ErrAppNotFound)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.RefreshTokens(context.Background(), &authv1.RefreshTokensRequest{
 		RefreshToken:  "some-token",
@@ -264,7 +263,7 @@ func TestLogout_Success(t *testing.T) {
 	svc := new(authServiceMock)
 	svc.On("Logout", mock.Anything, "some-refresh-token").Return(nil)
 
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	resp, err := client.Logout(context.Background(), &authv1.LogoutRequest{
 		RefreshToken: "some-refresh-token",
@@ -276,7 +275,7 @@ func TestLogout_Success(t *testing.T) {
 
 func TestLogout_EmptyToken(t *testing.T) {
 	svc := new(authServiceMock)
-	client := newTestClient(t, svc)
+	client := newTestClient(t, svc, new(appSecretMock))
 
 	_, err := client.Logout(context.Background(), &authv1.LogoutRequest{})
 
@@ -285,51 +284,100 @@ func TestLogout_EmptyToken(t *testing.T) {
 	svc.AssertNotCalled(t, "Logout")
 }
 
-// --- GetRole ---
+// appSecretMock backs interceptors.AppSecretLookup in tests.
+type appSecretMock struct{ mock.Mock }
 
-func TestGetRole_Admin(t *testing.T) {
-	svc := new(authServiceMock)
-	svc.On("IsAdmin", mock.Anything, uint64(1)).Return(true, nil)
-
-	client := newTestClient(t, svc)
-
-	resp, err := client.GetRole(context.Background(), &authv1.GetRoleRequest{UserId: 1})
-
-	require.NoError(t, err)
-	assert.Equal(t, authv1.Role_ROLE_ADMIN, resp.GetRole())
+func (m *appSecretMock) App(ctx context.Context, appID uint64) (models.App, error) {
+	args := m.Called(ctx, appID)
+	return args.Get(0).(models.App), args.Error(1)
 }
 
-func TestGetRole_RegularUser(t *testing.T) {
+func mintToken(t *testing.T, uid, appID uint64, secret string) string {
+	t.Helper()
+	tok, err := jwt.NewAccessToken(models.User{ID: uid}, models.App{ID: appID, Secret: secret}, time.Hour)
+	require.NoError(t, err)
+	return tok
+}
+
+func withBearer(ctx context.Context, token string) context.Context {
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs("authorization", "Bearer "+token))
+}
+
+// --- GetRole ---
+
+func TestGetRole_Self(t *testing.T) {
 	svc := new(authServiceMock)
 	svc.On("IsAdmin", mock.Anything, uint64(1)).Return(false, nil)
 
-	client := newTestClient(t, svc)
+	apps := new(appSecretMock)
+	apps.On("App", mock.Anything, uint64(1)).Return(models.App{ID: 1, Secret: "s1"}, nil)
 
-	resp, err := client.GetRole(context.Background(), &authv1.GetRoleRequest{UserId: 1})
+	client := newTestClient(t, svc, apps)
+	token := mintToken(t, 1, 1, "s1")
+
+	resp, err := client.GetRole(withBearer(context.Background(), token), &authv1.GetRoleRequest{UserId: 1})
 
 	require.NoError(t, err)
 	assert.Equal(t, authv1.Role_ROLE_USER, resp.GetRole())
 }
 
-func TestGetRole_UserNotFound(t *testing.T) {
+func TestGetRole_OtherUser_Denied(t *testing.T) {
 	svc := new(authServiceMock)
-	svc.On("IsAdmin", mock.Anything, uint64(999)).Return(false, storage.ErrUserNotFound)
+	svc.On("IsAdmin", mock.Anything, uint64(1)).Return(false, nil) // caller (1) is not admin
 
-	client := newTestClient(t, svc)
+	apps := new(appSecretMock)
+	apps.On("App", mock.Anything, uint64(1)).Return(models.App{ID: 1, Secret: "s1"}, nil)
 
-	_, err := client.GetRole(context.Background(), &authv1.GetRoleRequest{UserId: 999})
+	client := newTestClient(t, svc, apps)
+	token := mintToken(t, 1, 1, "s1") // authenticated as user 1
+
+	_, err := client.GetRole(withBearer(context.Background(), token), &authv1.GetRoleRequest{UserId: 2})
 
 	require.Error(t, err)
-	assert.Equal(t, codes.NotFound, statusCode(t, err))
+	assert.Equal(t, codes.PermissionDenied, statusCode(t, err))
+	svc.AssertNotCalled(t, "IsAdmin", mock.Anything, uint64(2))
 }
 
-func TestGetRole_MissingUserID(t *testing.T) {
+func TestGetRole_AdminCanViewOthers(t *testing.T) {
 	svc := new(authServiceMock)
-	client := newTestClient(t, svc)
+	svc.On("IsAdmin", mock.Anything, uint64(1)).Return(true, nil)  // caller is admin
+	svc.On("IsAdmin", mock.Anything, uint64(2)).Return(false, nil) // target user
 
-	_, err := client.GetRole(context.Background(), &authv1.GetRoleRequest{})
+	apps := new(appSecretMock)
+	apps.On("App", mock.Anything, uint64(1)).Return(models.App{ID: 1, Secret: "s1"}, nil)
+
+	client := newTestClient(t, svc, apps)
+	token := mintToken(t, 1, 1, "s1")
+
+	resp, err := client.GetRole(withBearer(context.Background(), token), &authv1.GetRoleRequest{UserId: 2})
+
+	require.NoError(t, err)
+	assert.Equal(t, authv1.Role_ROLE_USER, resp.GetRole())
+}
+
+func TestGetRole_NoToken_Unauthenticated(t *testing.T) {
+	svc := new(authServiceMock)
+	apps := new(appSecretMock)
+	client := newTestClient(t, svc, apps)
+
+	_, err := client.GetRole(context.Background(), &authv1.GetRoleRequest{UserId: 1})
+
+	require.Error(t, err)
+	assert.Equal(t, codes.Unauthenticated, statusCode(t, err))
+	svc.AssertNotCalled(t, "IsAdmin")
+}
+
+func TestRegister_PasswordTooLong(t *testing.T) {
+	svc := new(authServiceMock)
+	apps := new(appSecretMock)
+	client := newTestClient(t, svc, apps)
+
+	_, err := client.Register(context.Background(), &authv1.RegisterRequest{
+		Email:    "test@example.com",
+		Password: strings.Repeat("a", 73),
+	})
 
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, statusCode(t, err))
-	svc.AssertNotCalled(t, "IsAdmin")
+	svc.AssertNotCalled(t, "RegisterNewUser")
 }
