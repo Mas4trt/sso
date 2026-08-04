@@ -88,4 +88,8 @@ proto-update:
 new-app:
 	@test -n "$(NAME)" || { echo "usage: make new-app NAME=billing-service"; exit 1; }
 	@SECRET=$$(openssl rand -hex 32); \
-	psql "$(DB_DSN)" -c "INSERT INTO apps (name, secret) VALUES ('$(NAME)', '$$SECRET') RETURNING id, name, secret;"
+	if command -v psql >/dev/null 2>&1; then \
+		psql "$(DB_DSN)" -c "INSERT INTO apps (name, secret) VALUES ('$(NAME)', '$$SECRET') RETURNING id, name, secret;"; \
+	else \
+		docker compose exec -T postgres psql -U sso -d sso -c "INSERT INTO apps (name, secret) VALUES ('$(NAME)', '$$SECRET') RETURNING id, name, secret;"; \
+	fi

@@ -110,8 +110,10 @@ func (c *Config) Validate() error {
 func fetchConfigPath() string {
 	var res string
 
-	flag.StringVar(&res, "config", "", "path to configuration file")
-	flag.Parse()
+	if !flag.Parsed() {
+		flag.StringVar(&res, "config", "", "path to configuration file")
+		flag.Parse()
+	}
 
 	if res == "" {
 		res = os.Getenv("CONFIG_PATH")
