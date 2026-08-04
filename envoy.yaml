@@ -8,9 +8,9 @@ static_resources:
             - name: envoy.filters.network.http_connection_manager
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
-                  stat_prefix: sso_grpc_web
-                  codec_type: AUTO
-                  use_remote_address: true
+                stat_prefix: sso_grpc_web
+                codec_type: AUTO
+                use_remote_address: true
                 route_config:
                   name: local_route
                   virtual_hosts:
