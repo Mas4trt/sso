@@ -161,14 +161,19 @@ func (s *Storage) RefreshToken(ctx context.Context, tokenHash []byte) (models.Re
 func (s *Storage) RevokeRefreshToken(ctx context.Context, tokenHash []byte) error {
 	const op = "storage.postgres.RevokeRefreshToken"
 
-	_, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(ctx,
 		`UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
 		tokenHash,
 	)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
-
+	if tag.RowsAffected() == 0 {
+		// Never existed, or someone else already revoked it. Callers that
+		// care about replay (RefreshTokens) need to see this as distinct
+		// from a clean revoke.
+		return fmt.Errorf("%s: %w", op, storage.ErrRefreshTokenInvalid)
+	}
 	return nil
 }
 

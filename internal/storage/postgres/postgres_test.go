@@ -109,3 +109,22 @@ func TestStorage_RefreshTokenLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rt.RevokedAt)
 }
+
+func TestStorage_RevokeRefreshToken_AlreadyRevoked(t *testing.T) {
+	store, dsn := setupTestDB(t)
+	ctx := context.Background()
+
+	uid, err := store.SaveUser(ctx, "replay@example.com", []byte("hash"))
+	require.NoError(t, err)
+
+	appID, err := seedApp(ctx, dsn, "replay-test-app", "secret")
+	require.NoError(t, err)
+
+	tokenHash := []byte("replay-hash-32-bytes-aaaaaaaaaaa")
+	require.NoError(t, store.SaveRefreshToken(ctx, tokenHash, uid, appID, time.Now().Add(time.Hour)))
+
+	require.NoError(t, store.RevokeRefreshToken(ctx, tokenHash)) // first revoke wins
+
+	err = store.RevokeRefreshToken(ctx, tokenHash) // simulated raced/replayed second call
+	require.ErrorIs(t, err, storage.ErrRefreshTokenInvalid)
+}
