@@ -55,21 +55,35 @@ Map gRPC status codes to what the service actually did:
 | `NotFound` | unknown `application_id` or `user_id` |
 | `Internal` | sso-side failure, safe to retry with backoff |
 
-## 3. Health checks
+## 3. Browser clients (grpc-web via Envoy)
+
+Browser-based clients cannot speak plaintext gRPC directly. In that case,
+put Envoy in front of sso and use grpc-web over HTTP/1.1:
+
+```text
+browser (grpc-web) → Envoy :8080 → sso :44044 (h2c gRPC)
+```
+
+The repository already contains a ready-to-use Envoy config in
+`envoy.yaml` and a compose service in `docker-compose.yaml`.
+For production, keep a separate `envoy.prod.yaml` with TLS termination and
+restrictive CORS origins instead of exposing the admin port externally.
+
+## 4. Health checks
 
 sso registers the standard gRPC health service on the same port
 (`grpc.health.v1.Health`), used by `grpc_health_probe` in the container
 healthcheck. Consuming services can watch it the same way instead of
 polling `Authenticate` to check liveness.
 
-## 4. Refresh token rotation
+## 5. Refresh token rotation
 
 Refresh tokens are single-use — each `RefreshTokens` call revokes the old
 token and issues a new pair. If a client uses a refresh token twice
 (replay), the second call gets `Unauthenticated`. Don't cache/reuse a
 refresh token after exchanging it.
 
-## 5. TLS
+## 6. TLS
 
 The dial example above is intentionally insecure and fine on a private
 network or service mesh. Before exposing sso beyond that, terminate TLS

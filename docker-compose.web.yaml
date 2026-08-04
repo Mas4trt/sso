@@ -1,0 +1,21 @@
+# Дополняет docker-compose.yaml сервиса sso прокси-слоем grpc-web.
+# Запуск из корня sso рядом с основным docker-compose.yaml:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.web.yaml up -d --build
+#
+# sso сам по себе ничего не знает про этот прокси — он просто ещё один
+# клиент на порту 44044, как любой другой consuming service.
+name: sso
+
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    restart: unless-stopped
+    depends_on:
+      sso:
+        condition: service_healthy
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "8080:8080" # grpc-web, используется sso-web
+      - "9901:9901" # envoy admin/health, не выставлять наружу в проде

@@ -6,7 +6,7 @@ BIN_DIR        := ./bin
 .PHONY: run build test test-unit test-integration lint fmt vet ci \
         migrate-up migrate-down migrate-new \
         docker-up docker-down docker-logs \
-        proto-update new-app
+        envoy-validate proto-update new-app
 
 ## --- local dev ---
 
@@ -65,6 +65,9 @@ docker-down:
 
 docker-logs:
 	docker compose logs -f sso
+
+envoy-validate:
+	docker run --rm -v "$$(pwd)/envoy.yaml:/envoy.yaml:ro" envoyproxy/envoy:v1.31-latest --mode validate -c /envoy.yaml
 
 ## --- dependency management ---
 
